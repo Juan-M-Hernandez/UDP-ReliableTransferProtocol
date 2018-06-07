@@ -1,0 +1,18 @@
+NAME:Juan Hernandez
+UID:904476103
+
+
+
+Compiling and Running Server
+===============================
+To compile a simple "make" will compile the server.c
+into the executable server file.
+Running the server requires a valid portnumber to be
+specified.
+
+EX:
+$./server 11300
+
+At most 5 simultaneous connections will be accepted,
+the server will continue to handle requests indefinitely until
+it receives a SIGINT command through a Ctrl-C input.
