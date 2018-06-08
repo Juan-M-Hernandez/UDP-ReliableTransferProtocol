@@ -94,10 +94,14 @@ int main(int argc, char *argv[])
 	struct hostent *server;  // contains tons of information, including the server's IP address
 	socklen_t servlen = sizeof(serv_addr);
 
-	if (argc < 3) {
-	   cerr << "Usage: " << argv[0] << " hostname port\n";
+	if (argc != 4) {
+	   cerr << "Usage: " << argv[0] << " hostname port filename\n";
 	   exit(0);
 	}
+
+	char* filename;
+	filename = (char*)malloc(strlen(argv[3]));
+	strcpy(filename,argv[3]);
 
 	portno = atoi(argv[2]);
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);  // create a new socket
@@ -115,26 +119,34 @@ int main(int argc, char *argv[])
 	bcopy((char *)server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
 	serv_addr.sin_port = htons(portno);
 
+	/////////////////////
 	// HANDSHAKING
+	/////////////////////
+
 	int seq = INIT_SEQ;
 
 	char pkt[1024];
 	memset(pkt,0,1024);
+
+	// send first SYN
 	packet syn(seq,0,true,false,false,0,NULL);
 	encode(syn,pkt);
-
 	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
 	seq++;
 	if (n < 0)
 		 error("ERROR writing to socket");
 
+	// receive SYN-ACK
+	memset(pkt,0,1024);
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&serv_addr,&servlen);
 	if(n<0) error("ERROR reading from socket");
 	packet synack = decode(pkt);
 
 	log_packet(synack);
 
-	packet ack(seq,synack.seq+1,true,true,false,0,NULL);
+	// send ACK with name of requesting file
+	memset(pkt,0,1024);
+	packet ack(seq,synack.seq+1,true,true,false,strlen(filename),filename);
 	encode(ack,pkt);
 	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
 	seq++;

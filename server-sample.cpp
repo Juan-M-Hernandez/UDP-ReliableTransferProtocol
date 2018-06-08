@@ -111,22 +111,36 @@ int main(int argc, char *argv[])
 	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
 		error("ERROR on binding");
 
+	/////////////////////
 	// HANDSHAKING
+	/////////////////////
 
 	int n;
+	int seq = INIT_SEQ;
+
+	// receive first SYN
 
 	char pkt[1024];
+	memset(pkt,0,1024);
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 	if(n<0) error("ERROR reading from socket");
 	packet syn = decode(pkt);
 
 	log_packet(syn);
 
-	packet synack(INIT_SEQ,syn.seq+1,true,true,false,0,NULL);
+	// send SYN-ACK
+
+	memset(pkt,0,1024);
+	packet synack(seq,syn.seq+1,true,true,false,0,NULL);
 	encode(synack,pkt);
 	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+	seq++;
 	if (n < 0)
 		 error("ERROR writing to socket");
+
+	// receive ACK with name of requested file
+
+	memset(pkt,0,1024);
 
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 	if(n<0) error("ERROR reading from socket");
