@@ -6,9 +6,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <cerrno>
 using namespace std;
 
-#define INIT_SEQ 123;
+#define INIT_SEQ 123
 
 struct packet{
 	unsigned int seq; // 4 bytes
@@ -17,15 +18,15 @@ struct packet{
 	bool ack_flag; // 1 byte
 	bool fin_flag; // 1 byte
 	int data_size; // 4 bytes
-	string data; // 1024-15 = 1009 bytes 
-	packet(unsigned s, unsigned a, bool sf, bool af, bool ff, int ds, string d){
+	char data[1009]; // 1024-15 = 1009 bytes 
+	packet(unsigned s, unsigned a, bool sf, bool af, bool ff, int ds, char* d){
 		seq = s;
 		ack = a;
 		syn_flag = sf;;
 		ack_flag = af;
 		fin_flag = ff;
 		data_size = ds;
-		data = d;
+		if(d != NULL) strcpy(data,d);
 	}
 };
 
@@ -43,7 +44,7 @@ void encode(packet p, char* ptr){
 	ptr++;
 	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)));
 	ptr+=4;
-	strcpy(ptr,p.data.c_str());
+	strcpy(ptr,p.data);
 }
 
 packet decode(char* ptr){
@@ -63,7 +64,8 @@ packet decode(char* ptr){
 	strncpy(four,ptr,4);
 	int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
-	string data(ptr);
+	char data[1009];
+	strcpy(data,ptr);
 
 	packet p(seq,ack,syn_flag,ack_flag,fin_flag,data_size,data);
 	return p;
@@ -71,15 +73,23 @@ packet decode(char* ptr){
 
 void error(string msg)
 {
-	cerr << msg << endl;
+	cerr << "SERVER: " << msg << " - " << strerror(errno) << endl;
 	exit(1);
+}
+
+void log_packet(packet p){
+	cerr << "CLIENT ==> SERVER:";
+	if(p.syn_flag) cerr << " SEQ=" << p.seq;
+	if(p.ack_flag) cerr << " ACK=" << p.ack;
+	if(p.data_size > 0) cerr << " data=\"" << p.data << "\"";
+	cerr << endl;
 }
 
 int main(int argc, char *argv[])
 {
 	int sockfd, portno;
-	socklen_t clilen;
 	struct sockaddr_in serv_addr, cli_addr;
+	socklen_t clilen = sizeof(cli_addr);
 
 	if (argc < 2) {
 		error("ERROR, no port provided");
@@ -108,22 +118,21 @@ int main(int argc, char *argv[])
 	char pkt[1024];
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 	if(n<0) error("ERROR reading from socket");
+	packet syn = decode(pkt);
 
-	packet p = decode(pkt);
-	cerr << p.seq << " " << p.ack << " " << p.syn_flag << " " << p.ack_flag << " " << p.fin_flag << " " << p.data_size << " " << p.data << endl;
+	log_packet(syn);
 
-	// HANDSHAKING
-	//n = read(newsockfd,buffer,)
+	packet synack(INIT_SEQ,syn.seq+1,true,true,false,0,NULL);
+	encode(synack,pkt);
+	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+	if (n < 0)
+		 error("ERROR writing to socket");
 
+	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+	if(n<0) error("ERROR reading from socket");
+	packet ack = decode(pkt);
 
-	// //read client's message
-	// n = read(newsockfd, buffer, 255);
-	// if (n < 0) error("ERROR reading from socket");
-	// cout << "Here is the message: " << buffer << endl;
-
-	// //reply to client
-	// n = write(newsockfd, "I got your message", 18);
-	// if (n < 0) error("ERROR writing to socket");
+	log_packet(ack);
 
 	close(sockfd);
 
