@@ -7,9 +7,12 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cerrno>
+#include <dirent.h>
+#include <fstream>
 using namespace std;
 
 #define INIT_SEQ 123
+#define MAX_DATA_SIZE 1009
 
 struct packet{
 	unsigned int seq; // 4 bytes
@@ -17,8 +20,8 @@ struct packet{
 	bool syn_flag; // 1 byte
 	bool ack_flag; // 1 byte
 	bool fin_flag; // 1 byte
-	int data_size; // 4 bytes
-	char data[1009]; // 1024-15 = 1009 bytes 
+	unsigned int data_size; // 4 bytes
+	char data[MAX_DATA_SIZE]; // 1024-15 = 1009 bytes 
 	packet(unsigned s, unsigned a, bool sf, bool af, bool ff, int ds, char* d){
 		seq = s;
 		ack = a;
@@ -47,12 +50,10 @@ void encode(packet p, char* ptr){
 	strcpy(ptr,p.data);
 }
 
-packet decode(char* ptr){
-	char four[4];
-	strncpy(four,ptr,4);
+packet decode(char* buffer){
+	unsigned char* ptr = (unsigned char*)buffer;
 	unsigned int seq = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
-	strncpy(four,ptr,4);
 	unsigned int ack = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
 	bool syn_flag = ptr[0] != 0;
@@ -61,11 +62,10 @@ packet decode(char* ptr){
 	ptr += 1;
 	bool fin_flag = ptr[0] != 0;
 	ptr += 1;
-	strncpy(four,ptr,4);
-	int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
+	unsigned int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
-	char data[1009];
-	strcpy(data,ptr);
+	char data[MAX_DATA_SIZE];
+	strcpy(data,(char*)ptr);
 
 	packet p(seq,ack,syn_flag,ack_flag,fin_flag,data_size,data);
 	return p;
@@ -83,6 +83,32 @@ void log_packet(packet p){
 	if(p.ack_flag) cerr << " ACK=" << p.ack;
 	if(p.data_size > 0) cerr << " data=\"" << p.data << "\"";
 	cerr << endl;
+}
+
+// case-insensitive string compare function
+bool compare(string a, string b){
+	if(a.length() != b.length()) return false;
+	for(size_t i = 0; i < a.length(); i++){
+		if(tolower(a[i]) != tolower(b[i])) return false;
+	}
+	return true;
+}
+
+// uses dirent.h functions to comb the directory
+string search_directory(string filename){
+	DIR *dir;
+    dirent *pdir;
+    dir=opendir(".");
+    while((pdir=readdir(dir)))
+    {
+        string name = pdir->d_name;
+        if(compare(name,filename)){
+        	closedir(dir);
+        	return name;
+        }
+    }
+    closedir(dir);
+    return "";
 }
 
 int main(int argc, char *argv[])
@@ -147,6 +173,49 @@ int main(int argc, char *argv[])
 	packet ack = decode(pkt);
 
 	log_packet(ack);
+
+	string filename(ack.data);
+
+	// find the file in the directory
+	filename = search_directory(filename);
+	if(filename == ""){
+		// whatever happens if the file doesn't exist :(
+	} else{
+		ifstream file(filename.c_str(),ios_base::binary);
+		char buffer[MAX_DATA_SIZE];
+		while(file.good()){
+			memset(buffer,0,MAX_DATA_SIZE);
+			file.read(buffer,MAX_DATA_SIZE-1);
+			buffer[MAX_DATA_SIZE-1] = 0;
+			cout << buffer;
+			packet sendpkt(seq,ack.seq+1,true,true,false,strlen(buffer),buffer);
+			memset(pkt,0,1024);
+			encode(sendpkt,pkt);
+			n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+			seq++;
+			if (n < 0)
+				 error("ERROR writing to socket");
+
+			memset(pkt,0,1024);
+
+			// n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+			// if(n<0) error("ERROR reading from socket");
+			// packet rcvpkt = decode(pkt);
+
+			// log_packet(rcvpkt);
+
+		}
+		file.close();
+
+		packet finpkt(seq,ack.seq+1,true,true,true,0,NULL);
+		memset(pkt,0,1024);
+		encode(finpkt,pkt);
+		n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+		seq++;
+		if (n < 0)
+			 error("ERROR writing to socket");
+	}
+
 
 	close(sockfd);
 

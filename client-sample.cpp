@@ -11,6 +11,7 @@
 using namespace std;
 
 #define INIT_SEQ 321
+#define MAX_DATA_SIZE 1009
 
 struct packet{
 	unsigned int seq; // 4 bytes
@@ -18,8 +19,8 @@ struct packet{
 	bool syn_flag; // 1 byte
 	bool ack_flag; // 1 byte
 	bool fin_flag; // 1 byte
-	int data_size; // 4 bytes
-	char data[1009]; // 1024-15 = 1009 bytes 
+	unsigned int data_size; // 4 bytes
+	char data[MAX_DATA_SIZE]; // 1024-15 = 1009 bytes 
 	packet(unsigned s, unsigned a, bool sf, bool af, bool ff, int ds, char* d){
 		seq = s;
 		ack = a;
@@ -48,12 +49,10 @@ void encode(packet p, char* ptr){
 	strcpy(ptr,p.data);
 }
 
-packet decode(char* ptr){
-	char four[4];
-	strncpy(four,ptr,4);
+packet decode(char* buffer){
+	unsigned char* ptr = (unsigned char*)buffer;
 	unsigned int seq = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
-	strncpy(four,ptr,4);
 	unsigned int ack = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
 	bool syn_flag = ptr[0] != 0;
@@ -62,11 +61,10 @@ packet decode(char* ptr){
 	ptr += 1;
 	bool fin_flag = ptr[0] != 0;
 	ptr += 1;
-	strncpy(four,ptr,4);
-	int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
+	unsigned int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
-	char data[1009];
-	strcpy(data,ptr);
+	char data[MAX_DATA_SIZE];
+	strcpy(data,(char*)ptr);
 
 	packet p(seq,ack,syn_flag,ack_flag,fin_flag,data_size,data);
 	return p;
@@ -82,7 +80,12 @@ void log_packet(packet p){
 	cerr << "CLIENT <== SERVER:";
 	if(p.syn_flag) cerr << " SEQ=" << p.seq;
 	if(p.ack_flag) cerr << " ACK=" << p.ack;
-	if(p.data_size > 0) cerr << " data=\"" << p.data << "\"";
+	if(p.fin_flag) cerr << " FIN";
+	if(p.data_size > 0){
+		cerr << " data (" << p.data_size << ")=\"" << p.data << "\"";
+
+		cout << p.data;
+	}
 	cerr << endl;
 }
 
@@ -152,6 +155,18 @@ int main(int argc, char *argv[])
 	seq++;
 	if (n < 0)
 		 error("ERROR writing to socket");
+
+	while(true){
+		memset(pkt,0,1024);
+		n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&serv_addr,&servlen);
+		if(n<0) error("ERROR reading from socket");
+		packet recvpkt = decode(pkt);
+
+		log_packet(recvpkt);
+		if(recvpkt.fin_flag){
+			break;
+		}
+	}
 
 
 	close(sockfd);  // close socket
