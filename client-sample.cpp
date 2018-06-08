@@ -10,8 +10,11 @@
 #include <cerrno>
 using namespace std;
 
-#define INIT_SEQ 321
+#define INIT_SEQ 0
+#define HEADER_SIZE 15
 #define MAX_DATA_SIZE 1009
+#define CWND 5120
+#define MAX_SEQ 30720
 
 struct packet{
 	unsigned int seq; // 4 bytes
@@ -30,9 +33,12 @@ struct packet{
 		data_size = ds;
 		if(d != NULL) strcpy(data,d);
 	}
+	unsigned int pktsize(){
+		return HEADER_SIZE + data_size + (data_size != 0 ? 1 : 0);
+	}
 };
 
-void encode(packet p, char* ptr){
+unsigned int encode(packet p, char* ptr){
 	// seq
 	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.seq)));
 	ptr += 4;
@@ -47,6 +53,7 @@ void encode(packet p, char* ptr){
 	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)));
 	ptr+=4;
 	strcpy(ptr,p.data);
+	return p.pktsize();
 }
 
 packet decode(char* buffer){
@@ -76,17 +83,20 @@ void error(string msg)
 	exit(0);
 }
 
-void log_packet(packet p){
-	cerr << "CLIENT <== SERVER:";
-	if(p.syn_flag) cerr << " SEQ=" << p.seq;
-	if(p.ack_flag) cerr << " ACK=" << p.ack;
-	if(p.fin_flag) cerr << " FIN";
-	if(p.data_size > 0){
-		cerr << " data (" << p.data_size << ")=\"" << p.data << "\"";
+void log_send(packet p, bool re = false){
+	cout << "Sending packet " << p.seq << " " << CWND;
+	if(re) cout << " Retransmission";
+	if(p.syn_flag) cout << " SYN";
+	if(p.fin_flag) cout << " FIN";
+	cout << endl;
+}
+void log_recv(packet p){
+	cout << "Receiving packet " << p.seq + p.pktsize() << endl;
+}
 
-		cout << p.data;
-	}
-	cerr << endl;
+
+unsigned int add(unsigned int seq, unsigned int bytes){
+	return (seq + bytes) % MAX_SEQ;
 }
 
 int main(int argc, char *argv[])
@@ -133,9 +143,10 @@ int main(int argc, char *argv[])
 
 	// send first SYN
 	packet syn(seq,0,true,false,false,0,NULL);
-	encode(syn,pkt);
-	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
-	seq++;
+	unsigned int pktsize = encode(syn,pkt);
+	n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
+	log_send(syn);
+	seq = add(seq,pktsize);
 	if (n < 0)
 		 error("ERROR writing to socket");
 
@@ -144,15 +155,15 @@ int main(int argc, char *argv[])
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&serv_addr,&servlen);
 	if(n<0) error("ERROR reading from socket");
 	packet synack = decode(pkt);
-
-	log_packet(synack);
+	log_recv(synack);
 
 	// send ACK with name of requesting file
 	memset(pkt,0,1024);
-	packet ack(seq,synack.seq+1,true,true,false,strlen(filename),filename);
-	encode(ack,pkt);
+	packet ack(seq,synack.seq+1,false,true,false,strlen(filename),filename);
+	pktsize = encode(ack,pkt);
 	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
-	seq++;
+	log_send(ack);
+	seq = add(seq,pktsize);
 	if (n < 0)
 		 error("ERROR writing to socket");
 
@@ -162,7 +173,7 @@ int main(int argc, char *argv[])
 		if(n<0) error("ERROR reading from socket");
 		packet recvpkt = decode(pkt);
 
-		log_packet(recvpkt);
+		log_recv(recvpkt);
 		if(recvpkt.fin_flag){
 			break;
 		}

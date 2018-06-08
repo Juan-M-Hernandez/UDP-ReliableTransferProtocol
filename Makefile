@@ -10,6 +10,10 @@ sample:
 	g++ -o server-sample $(CPPFLAGS) server-sample.cpp
 	g++ -o client-sample $(CPPFLAGS) client-sample.cpp
 
+test:
+	./server-sample 9999 &
+	./client-sample localhost 9999 hello.txt
+
 clean:
 	rm -rf *.o *~ *.gch *.swp *.dSYM server client *.tar.gz
 
