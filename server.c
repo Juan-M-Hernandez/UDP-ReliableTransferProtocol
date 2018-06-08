@@ -12,6 +12,8 @@
 #include <string.h>
 #include <signal.h>  /* signal name macros, and the kill() prototype */
 #include <ctype.h>
+#include <dirent.h> // for directory file searching
+#include <strings.h> // for strcasecmp
 void error(char *msg)
 {
     perror(msg);
@@ -97,7 +99,7 @@ char* getFileType(char* fileName){
     return HTTP_contentTypeTextHtml_header;
   }
   else if (strcmp(extension, ".jpg") == 0 ||
-	   strcmp(extension, ".jpeg") == 0){
+     strcmp(extension, ".jpeg") == 0){
     return HTTP_contentTypeJpeg_header;
   }
 
@@ -111,22 +113,18 @@ char* getFileType(char* fileName){
     return HTTP_contentTypeTextHtml_header;
 }
 
-// must be valid c string
 char* sanitizeFileName(char* fileName){
   size_t fileNameLength = strlen(fileName);
   size_t iter;
-  for(iter = 0; iter < fileNameLength; iter++){
-    fileName[iter] = tolower(fileName[iter]);
-  }
 
   for(iter = 0; iter < fileNameLength; iter++){
     if (fileName[iter] == '%' && fileName[iter + 1] == '2' &&
-	fileName[iter + 2] == '0'){
+  fileName[iter + 2] == '0'){
       fileName[iter] = ' ';
       size_t iter2 = 0;
       while(fileName[iter + iter2 + 3] != '\0'){
-	fileName[iter + iter2 + 1] = fileName[iter + iter2 + 3];
-	iter2++;
+  fileName[iter + iter2 + 1] = fileName[iter + iter2 + 3];
+  iter2++;
       }
       fileName[iter + iter2 + 1] = '\0';
       fileNameLength -= 2;
@@ -135,6 +133,28 @@ char* sanitizeFileName(char* fileName){
   }
   return fileName;
 }
+
+
+/* Combs through the directory of the server and looks for the file using a case-insensitive string comparison
+    If found, sets the parameter to the name of the original file
+    If not found, sets the parameter to NULL
+*/
+char* searchDirectory(char* filename){
+  DIR *dir;
+  struct dirent *pdir;
+  dir=opendir(".");
+  while((pdir=readdir(dir)))
+  {
+      char* name = pdir->d_name;
+      if(strcasecmp(name,filename) == 0){
+        closedir(dir);
+        return name;
+      }
+  }
+  closedir(dir);
+  return NULL;
+}
+
 //////////////////////////////////////////////////
 // Tools for creating HTTP response to a GET request
 //////////////////////////////////////////////////
@@ -279,13 +299,16 @@ int main(int argc, char *argv[])
     char* fileName = getPathName(buffer);
     // TODO: sanitize filename function (capital letters spaces)
     fileName = sanitizeFileName(fileName);
-
-
     FILE* requestedFile = fopen(fileName, "r");
     if (requestedFile == NULL) {
-      char* output = get404ResponseMsg();
-      write(newsockfd, output, strlen(output));
-      return 1;
+      fileName = searchDirectory(fileName);
+      if (fileName == NULL) {
+        char* output = get404ResponseMsg();
+        write(newsockfd, output, strlen(output));
+        return 1;
+      }
+      FILE* newRequestedFile = fopen(fileName,"r");
+      requestedFile = newRequestedFile;
     }
     fseek(requestedFile, 0, SEEK_END);
     long fileSize = ftell(requestedFile);
@@ -306,9 +329,8 @@ int main(int argc, char *argv[])
     //reply to client
     int n = write(newsockfd, response, fileSize + httpResponseLength);
     if (n < 0) error("ERROR writing to socket");
-
-    buffer[0] = '\0';
-    responseMsg[0] = '\0';
+    memset(buffer, 0, sizeof(buffer));
+    memset(responseMsg,0,sizeof(responseMsg));
     }
     // HERE
     //printf("%s", response);
