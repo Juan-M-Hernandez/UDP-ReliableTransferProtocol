@@ -17,6 +17,13 @@ using namespace std;
 #define CWND 5120
 #define MAX_SEQ 30720
 
+
+void fakecpy(char* a, char* b, size_t len){
+	for(size_t i = 0; i < len; i++){
+		a[i] = b[i];
+	}
+}
+
 struct packet{
 	unsigned int seq; // 4 bytes
 	unsigned int ack; // 4 bytes
@@ -32,7 +39,7 @@ struct packet{
 		ack_flag = af;
 		fin_flag = ff;
 		data_size = ds;
-		if(d != NULL) strcpy(data,d);
+		if(d != NULL) fakecpy(data,d,ds);
 	}
 	unsigned int pktsize(){
 		return HEADER_SIZE + data_size + (data_size != 0 ? 1 : 0);
@@ -53,7 +60,7 @@ unsigned int encode(packet p, char* ptr){
 	ptr++;
 	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)));
 	ptr+=4;
-	strcpy(ptr,p.data);
+	fakecpy(ptr,p.data,p.data_size);
 	return p.pktsize();
 }
 
@@ -72,7 +79,7 @@ packet decode(char* buffer){
 	unsigned int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
 	char data[MAX_DATA_SIZE];
-	strcpy(data,(char*)ptr);
+	fakecpy(data,(char*)ptr,data_size);
 
 	packet p(seq,ack,syn_flag,ack_flag,fin_flag,data_size,data);
 	return p;
@@ -171,7 +178,7 @@ int main(int argc, char *argv[])
 	// send SYN-ACK
 
 	memset(pkt,0,1024);
-	packet synack(seq,syn.seq+1,true,true,false,0,NULL);
+	packet synack(seq,syn.seq+syn.pktsize(),true,true,false,0,NULL);
 	unsigned int pktsize = encode(synack,pkt);
 	n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
 	seq = add(seq,pktsize);
@@ -196,6 +203,7 @@ int main(int argc, char *argv[])
 	if(filename == ""){
 		// whatever happens if the file doesn't exist :(
 	} else{
+
 		ifstream file(filename.c_str(),ios_base::binary);
 		char buffer[MAX_DATA_SIZE];
 		while(file.good()){
@@ -203,7 +211,7 @@ int main(int argc, char *argv[])
 			file.read(buffer,MAX_DATA_SIZE-1);
 			streamsize bytes = file.gcount();
 			buffer[bytes] = 0;
-			packet sendpkt(seq,ack.seq+1,false,true,false,bytes,buffer);
+			packet sendpkt(seq,ack.seq+ack.pktsize(),false,true,false,bytes,buffer);
 			memset(pkt,0,1024);
 			pktsize = encode(sendpkt,pkt);
 			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
@@ -223,7 +231,7 @@ int main(int argc, char *argv[])
 		}
 		file.close();
 
-		packet finpkt(seq,ack.seq+1,false,true,true,0,NULL);
+		packet finpkt(seq,ack.seq+ack.pktsize(),false,true,true,0,NULL);
 		memset(pkt,0,1024);
 		pktsize = encode(finpkt,pkt);
 		n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket

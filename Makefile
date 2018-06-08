@@ -12,7 +12,12 @@ sample:
 
 test:
 	./server-sample 9999 &
-	./client-sample localhost 9999 hello.txt
+	./client-sample localhost 9999 test.file
+
+compare:
+	xxd received.data > a.x
+	xxd test.file > b.x
+	vimdiff b.x a.x
 
 clean:
 	rm -rf *.o *~ *.gch *.swp *.dSYM server client *.tar.gz

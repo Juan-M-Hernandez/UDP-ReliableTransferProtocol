@@ -8,6 +8,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <cerrno>
+#include <fstream>
 using namespace std;
 
 #define INIT_SEQ 0
@@ -15,6 +16,14 @@ using namespace std;
 #define MAX_DATA_SIZE 1009
 #define CWND 5120
 #define MAX_SEQ 30720
+
+
+
+void fakecpy(char* a, char* b, size_t len){
+	for(size_t i = 0; i < len; i++){
+		a[i] = b[i];
+	}
+}
 
 struct packet{
 	unsigned int seq; // 4 bytes
@@ -31,7 +40,7 @@ struct packet{
 		ack_flag = af;
 		fin_flag = ff;
 		data_size = ds;
-		if(d != NULL) strcpy(data,d);
+		if(d != NULL) fakecpy(data,d,ds);
 	}
 	unsigned int pktsize(){
 		return HEADER_SIZE + data_size + (data_size != 0 ? 1 : 0);
@@ -52,7 +61,7 @@ unsigned int encode(packet p, char* ptr){
 	ptr++;
 	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)));
 	ptr+=4;
-	strcpy(ptr,p.data);
+	fakecpy(ptr,p.data,p.data_size);
 	return p.pktsize();
 }
 
@@ -71,7 +80,7 @@ packet decode(char* buffer){
 	unsigned int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
 	ptr += 4;
 	char data[MAX_DATA_SIZE];
-	strcpy(data,(char*)ptr);
+	fakecpy(data,(char*)ptr,data_size);
 
 	packet p(seq,ack,syn_flag,ack_flag,fin_flag,data_size,data);
 	return p;
@@ -159,13 +168,16 @@ int main(int argc, char *argv[])
 
 	// send ACK with name of requesting file
 	memset(pkt,0,1024);
-	packet ack(seq,synack.seq+1,false,true,false,strlen(filename),filename);
+	packet ack(seq,synack.seq+synack.pktsize(),false,true,false,strlen(filename),filename);
 	pktsize = encode(ack,pkt);
 	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
 	log_send(ack);
 	seq = add(seq,pktsize);
 	if (n < 0)
 		 error("ERROR writing to socket");
+
+	ofstream recv_data;
+	recv_data.open("received.data",ios::binary);
 
 	while(true){
 		memset(pkt,0,1024);
@@ -174,11 +186,12 @@ int main(int argc, char *argv[])
 		packet recvpkt = decode(pkt);
 
 		log_recv(recvpkt);
+		recv_data.write(recvpkt.data,recvpkt.data_size);
 		if(recvpkt.fin_flag){
 			break;
 		}
 	}
-
+	recv_data.close();
 
 	close(sockfd);  // close socket
 
