@@ -53,17 +53,17 @@ struct packet{
 
 unsigned int encode(packet p, char* ptr){
 	// seq
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.seq)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.seq)),4);
 	ptr += 4;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack)),4);
 	ptr += 4;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.syn_flag)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.syn_flag)),1);
 	ptr++;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack_flag)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack_flag)),1);
 	ptr++;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.fin_flag)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.fin_flag)),1);
 	ptr++;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)),4);
 	ptr+=4;
 	fakecpy(ptr,p.data,p.data_size);
 	return p.pktsize();
@@ -110,6 +110,7 @@ unsigned int add(unsigned int seq, unsigned int bytes){
 
 int main(int argc, char *argv[])
 {
+
 	int sockfd;  // socket descriptor
 	int portno, n;
 	struct sockaddr_in serv_addr;
@@ -201,7 +202,7 @@ int main(int argc, char *argv[])
 
 	// send ACK with name of requesting file
 	memset(pkt,0,1024);
-	packet ack(seq,synack.seq+synack.pktsize(),false,true,false,strlen(filename),filename);
+	packet ack(seq,add(synack.seq,synack.pktsize()),false,true,false,strlen(filename),filename);
 	sendpkt = &ack;
 	pktsize = encode(*sendpkt,pkt);
 	n = sendto(sockfd, (const char*)pkt, 1024, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
@@ -258,7 +259,7 @@ int main(int argc, char *argv[])
 		}
 
 		// ACK the packet
-		unsigned int ackno = recvpkt.seq+recvpkt.pktsize();
+		unsigned int ackno = add(recvpkt.seq,recvpkt.pktsize());
 		packet newpkt(seq,ackno,false,true,false,0,NULL);
 		sendpkt = &newpkt;
 		memset(pkt,0,1024);
@@ -271,6 +272,29 @@ int main(int argc, char *argv[])
 
 	}
 	recv_data.close();
+	timeout.tv_sec = 0;
+	timeout.tv_usec = TIMEOUT * 1000 * 2;
+
+	while(true){
+		FD_ZERO(&inSet);
+		FD_SET(sockfd, &inSet);
+		int rv = select(sockfd+1,&inSet,NULL,NULL,&timeout);
+		if(rv < 0){
+			error("ERROR reading from socket");
+		} else if(rv == 0){
+			break;
+		} else{
+
+			memset(recvbuf,0,1024);
+			n = recvfrom(sockfd,(char*)recvbuf,1024,MSG_WAITALL,(struct sockaddr*)&serv_addr,&servlen);
+			if(n<0) error("ERROR reading from socket");
+			packet finpkt;
+			decode(recvbuf,finpkt);
+			log_recv(finpkt);
+			timeout.tv_sec = 0;
+			timeout.tv_usec = TIMEOUT * 1000 * 2;
+		}
+	}
 
 	close(sockfd);  // close socket
 

@@ -50,19 +50,20 @@ struct packet{
 	}
 };
 
-unsigned int encode(packet& p, char* ptr){
+
+unsigned int encode(packet p, char* ptr){
 	// seq
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.seq)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.seq)),4);
 	ptr += 4;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack)),4);
 	ptr += 4;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.syn_flag)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.syn_flag)),1);
 	ptr++;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack_flag)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.ack_flag)),1);
 	ptr++;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.fin_flag)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.fin_flag)),1);
 	ptr++;
-	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)));
+	fakecpy(ptr,static_cast<char*>(static_cast<void*>(&p.data_size)),4);
 	ptr+=4;
 	fakecpy(ptr,p.data,p.data_size);
 	return p.pktsize();
@@ -188,7 +189,7 @@ int main(int argc, char *argv[])
 	// send SYN-ACK
 
 	memset(pkt,0,1024);
-	packet synack(seq,syn.seq+syn.pktsize(),true,true,false,0,NULL);
+	packet synack(seq,add(syn.seq,syn.pktsize()),true,true,false,0,NULL);
 	unsigned int pktsize = encode(synack,pkt);
 	n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
 	seq = add(seq,pktsize);
@@ -239,7 +240,7 @@ int main(int argc, char *argv[])
 			file.read(buffer,MAX_DATA_SIZE-1);
 			streamsize bytes = file.gcount();
 			buffer[bytes] = 0;
-			packet sendpkt(seq,ack.seq+ack.pktsize(),false,true,false,bytes,buffer);
+			packet sendpkt(seq,add(ack.seq,ack.pktsize()),false,true,false,bytes,buffer);
 			memset(pkt,0,1024);
 			pktsize = encode(sendpkt,pkt);
 			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
@@ -285,7 +286,7 @@ int main(int argc, char *argv[])
 
 	// FIN stuff
 
-	packet finpkt(seq,ack.seq+ack.pktsize(),false,true,true,0,NULL);
+	packet finpkt(seq,add(ack.seq,ack.pktsize()),false,true,true,0,NULL);
 	memset(pkt,0,1024);
 	pktsize = encode(finpkt,pkt);
 	n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
@@ -294,13 +295,32 @@ int main(int argc, char *argv[])
 	if (n < 0)
 		 error("ERROR writing to socket");
 
-	memset(pkt,0,1024);
-	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
-	if(n<0) error("ERROR reading from socket");
-	packet recvpkt;
-	decode(pkt,recvpkt);
+	int retrycount = 0;
+	while(true){
+		FD_ZERO(&inSet);
+		FD_SET(sockfd, &inSet);
+		int rv = select(sockfd+1,&inSet,NULL,NULL,&timeout);
+		if(rv < 0){
+			error("ERROR reading from socket");
+		} else if(rv == 0){
+			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+			log_send(finpkt, true);
+			if (n < 0)
+				error("ERROR writing to socket");
+			
+			timeout.tv_sec = 0;
+			timeout.tv_usec = TIMEOUT * 1000;
+			retrycount++;
+			if(retrycount == 4){
+				break;
+			}
+		} else{
 
-	log_recv(recvpkt);
+			
+			break;
+		}
+	}
+
 
 
 	close(sockfd);
