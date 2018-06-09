@@ -214,6 +214,7 @@ int main(int argc, char *argv[])
 	ofstream recv_data;
 	recv_data.open("received.data",ios::binary);
 
+	unsigned int ackno;
 	while(true){
 		timeout.tv_sec = 0;
 		timeout.tv_usec = TIMEOUT * 1000;
@@ -247,25 +248,24 @@ int main(int argc, char *argv[])
 
 		recv_data.write(recvpkt.data,recvpkt.data_size);
 		if(recvpkt.fin_flag){
-			unsigned int ackno= recvpkt.seq + recvpkt.pktsize();
+			ackno= add(recvpkt.seq,recvpkt.pktsize());
 			packet finack(seq,ackno,false,true,true,0,NULL);
 			memset(pkt,0,1024);
 			pktsize = encode(finack,pkt);
-			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr)); 
-			seq = add(seq,pktsize);
+			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));
 			log_send(finack);
 
 			break;
 		}
 
 		// ACK the packet
-		unsigned int ackno = add(recvpkt.seq,recvpkt.pktsize());
+		ackno = add(recvpkt.seq,recvpkt.pktsize());
 		packet newpkt(seq,ackno,false,true,false,0,NULL);
 		sendpkt = &newpkt;
 		memset(pkt,0,1024);
 		pktsize = encode(newpkt,pkt);
-		n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
-		seq = add(seq,pktsize);
+		n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr)); 
+		seq = add(seq,pktsize);  // write to the socket
 		log_send(newpkt);
 		if (n < 0)
 			 error("ERROR writing to socket");
@@ -291,6 +291,12 @@ int main(int argc, char *argv[])
 			packet finpkt;
 			decode(recvbuf,finpkt);
 			log_recv(finpkt);
+
+			packet finack(seq,ackno,false,true,true,0,NULL);
+			memset(pkt,0,1024);
+			pktsize = encode(finack,pkt);
+			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));
+			log_send(finack,true);
 			timeout.tv_sec = 0;
 			timeout.tv_usec = TIMEOUT * 1000 * 2;
 		}

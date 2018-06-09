@@ -198,7 +198,7 @@ int main(int argc, char *argv[])
 		 error("ERROR writing to socket");
 
 	// receive ACK with name of requested file
-
+	char recvack[1024];
 	packet ack;
 	while(true){
 		FD_ZERO(&inSet);
@@ -211,15 +211,14 @@ int main(int argc, char *argv[])
 			log_send(synack, true);
 			if (n < 0)
 				error("ERROR writing to socket");
-			
 			timeout.tv_sec = 0;
 			timeout.tv_usec = TIMEOUT * 1000;
 		} else{
 
-			memset(pkt,0,1024);
-			n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+			memset(recvack,0,1024);
+			n = recvfrom(sockfd,(char*)recvack,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 			if(n<0) error("ERROR reading from socket");
-			decode(pkt,ack);
+			decode(recvack,ack);
 			log_recv(ack);
 			if(ack.ack == seq){
 				break;
@@ -311,7 +310,7 @@ int main(int argc, char *argv[])
 			timeout.tv_sec = 0;
 			timeout.tv_usec = TIMEOUT * 1000;
 			retrycount++;
-			if(retrycount == 4){
+			if(retrycount == 5){
 				break;
 			}
 		} else{
