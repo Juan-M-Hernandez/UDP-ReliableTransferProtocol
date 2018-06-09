@@ -9,8 +9,8 @@
 #include <cerrno>
 #include <dirent.h>
 #include <fstream>
-#include <thread>
-#include <chrono>
+#include <sys/time.h>
+#include <sys/types.h>
 using namespace std;
 
 #define INIT_SEQ 0
@@ -35,6 +35,7 @@ struct packet{
 	bool fin_flag; // 1 byte
 	unsigned int data_size; // 4 bytes
 	char data[MAX_DATA_SIZE]; // 1024-15 = 1009 bytes 
+	packet(){}
 	packet(unsigned s, unsigned a, bool sf, bool af, bool ff, int ds, char* d){
 		seq = s;
 		ack = a;
@@ -49,7 +50,7 @@ struct packet{
 	}
 };
 
-unsigned int encode(packet p, char* ptr){
+unsigned int encode(packet& p, char* ptr){
 	// seq
 	strcpy(ptr,static_cast<char*>(static_cast<void*>(&p.seq)));
 	ptr += 4;
@@ -67,25 +68,22 @@ unsigned int encode(packet p, char* ptr){
 	return p.pktsize();
 }
 
-packet decode(char* buffer){
-	unsigned char* ptr = (unsigned char*)buffer;
-	unsigned int seq = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
-	ptr += 4;
-	unsigned int ack = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
-	ptr += 4;
-	bool syn_flag = ptr[0] != 0;
-	ptr += 1;
-	bool ack_flag = ptr[0] != 0;
-	ptr += 1;
-	bool fin_flag = ptr[0] != 0;
-	ptr += 1;
-	unsigned int data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
-	ptr += 4;
-	char data[MAX_DATA_SIZE];
-	fakecpy(data,(char*)ptr,data_size);
 
-	packet p(seq,ack,syn_flag,ack_flag,fin_flag,data_size,data);
-	return p;
+void decode(char* buffer, packet& p){
+	unsigned char* ptr = (unsigned char*)buffer;
+	p.seq = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
+	ptr += 4;
+	p.ack = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
+	ptr += 4;
+	p.syn_flag = ptr[0] != 0;
+	ptr += 1;
+	p.ack_flag = ptr[0] != 0;
+	ptr += 1;
+	p.fin_flag = ptr[0] != 0;
+	ptr += 1;
+	p.data_size = (ptr[3]<<24)+(ptr[2]<<16)+(ptr[1]<<8)+(ptr[0]);
+	ptr += 4;
+	fakecpy(p.data,(char*)ptr,p.data_size);
 }
 
 void error(string msg)
@@ -121,18 +119,18 @@ bool compare(string a, string b){
 // uses dirent.h functions to comb the directory
 string search_directory(string filename){
 	DIR *dir;
-    dirent *pdir;
-    dir=opendir(".");
-    while((pdir=readdir(dir)))
-    {
-        string name = pdir->d_name;
-        if(compare(name,filename)){
-        	closedir(dir);
-        	return name;
-        }
-    }
-    closedir(dir);
-    return "";
+	dirent *pdir;
+	dir=opendir(".");
+	while((pdir=readdir(dir)))
+	{
+		string name = pdir->d_name;
+		if(compare(name,filename)){
+			closedir(dir);
+			return name;
+		}
+	}
+	closedir(dir);
+	return "";
 }
 
 int main(int argc, char *argv[])
@@ -174,7 +172,8 @@ int main(int argc, char *argv[])
 	memset(pkt,0,1024);
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 	if(n<0) error("ERROR reading from socket");
-	packet syn = decode(pkt);
+	packet syn;
+	decode(pkt,syn);
 
 	log_recv(syn);
 
@@ -195,7 +194,8 @@ int main(int argc, char *argv[])
 
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 	if(n<0) error("ERROR reading from socket");
-	packet ack = decode(pkt);
+	packet ack;
+	decode(pkt,ack);
 
 	log_recv(ack);
 
@@ -223,17 +223,12 @@ int main(int argc, char *argv[])
 
 
 			char recvbuf[1024];
-			while(true){
-				memset(recvbuf,0,1024);
-				n = recvfrom(sockfd,(char*)recvbuf,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
-				if(n<0) error("ERROR reading from socket");
-				packet recvpkt = decode(recvbuf);
-				if(recvpkt.ack == seq){
-					break;
-				}
-			}
+			memset(recvbuf,0,1024);
+			n = recvfrom(sockfd,(char*)recvbuf,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+			if(n<0) error("ERROR reading from socket");
+			decode(recvbuf,ack);
+			log_recv(ack);
 
-			log_recv(recvpkt);
 
 		}
 		file.close();
@@ -253,7 +248,8 @@ int main(int argc, char *argv[])
 	memset(pkt,0,1024);
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
 	if(n<0) error("ERROR reading from socket");
-	packet recvpkt = decode(pkt);
+	packet recvpkt;
+	decode(pkt,recvpkt);
 
 	log_recv(recvpkt);
 
