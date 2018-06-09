@@ -191,6 +191,8 @@ int main(int argc, char *argv[])
 	memset(pkt,0,1024);
 
 	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+	// TODO: clients responsibility to retransmit file request packet if timeout
+	
 	if(n<0) error("ERROR reading from socket");
 	packet ack = decode(pkt);
 
@@ -206,7 +208,8 @@ int main(int argc, char *argv[])
 
 		ifstream file(filename.c_str(),ios_base::binary);
 		char buffer[MAX_DATA_SIZE];
-		while(file.good()){
+		bool hasReceivedTermianteACK = false;
+		while(file.good() && !hasReceivedTerminateACK){
 			memset(buffer,0,MAX_DATA_SIZE);
 			file.read(buffer,MAX_DATA_SIZE-1);
 			streamsize bytes = file.gcount();

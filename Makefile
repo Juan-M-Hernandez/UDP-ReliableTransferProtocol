@@ -11,14 +11,14 @@ sample:
 	g++ -o client-sample $(CPPFLAGS) client-sample.cpp
 
 test:
-	./server-sample 9999 &
-	./client-sample localhost 9999 test.file
+	./server-sample 1999 &
+	./client-sample localhost 1999 big.txt
 
 compare:
-	xxd received.data > a.x
-	xxd test.file > b.x
-	vimdiff b.x a.x
-
+#	xxd received.data > a.x
+#	xxd test.file > b.x
+#	vimdiff b.x a.x
+	diff big.txt received.data
 clean:
 	rm -rf *.o *~ *.gch *.swp *.dSYM server client *.tar.gz
 
