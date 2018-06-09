@@ -18,6 +18,8 @@ using namespace std;
 #define MAX_SEQ 30720
 
 
+#include <iterator>
+#include <vector>
 void fakecpy(char* a, char* b, size_t len){
 	for(size_t i = 0; i < len; i++){
 		a[i] = b[i];
@@ -163,7 +165,7 @@ int main(int argc, char *argv[])
 	/////////////////////
 
 	int n;
-	int seq = INIT_SEQ;
+	unsigned int seq = INIT_SEQ;
 
 	// receive first SYN
 
@@ -202,48 +204,62 @@ int main(int argc, char *argv[])
 
 	// find the file in the directory
 	filename = search_directory(filename);
+
+	//	map<unsigned int, packet> packetMap;
+        vector<pair<unsigned int, packet>> packetVector;
 	if(filename == ""){
 		// whatever happens if the file doesn't exist :(
 	} else{
+	  /////////////////////////////////////////////////
+	  // Read file into packets, 
+	  /////////////////////////////////////////////////
+	  // we store each packet into a pair, 1st == seq number, 2nd == packet struct
+	  // if we need to retransmit a packet we can search our vector of formatted
+	  // packets instead of attempting to read the file again
+	  ifstream file(filename.c_str(),ios_base::binary);
+	  char buffer[MAX_DATA_SIZE];
+	  while(file.good()){		  
+	    memset(buffer,0,MAX_DATA_SIZE);
+	    file.read(buffer,MAX_DATA_SIZE-1);
+	    streamsize bytes = file.gcount();
+	    buffer[bytes] = 0;
+	    packet sendpkt(seq,ack.seq+ack.pktsize(),false,true,false,bytes,buffer);
+	    
+	    packetVector.push_back(pair<unsigned int, packet>(seq, sendpkt));
+	    seq = add(seq,pktsize);
+	    
+	  }
+	  file.close();
 
-		ifstream file(filename.c_str(),ios_base::binary);
-		char buffer[MAX_DATA_SIZE];
-		bool hasReceivedTermianteACK = false;
-		while(file.good() && !hasReceivedTerminateACK){
-			memset(buffer,0,MAX_DATA_SIZE);
-			file.read(buffer,MAX_DATA_SIZE-1);
-			streamsize bytes = file.gcount();
-			buffer[bytes] = 0;
-			packet sendpkt(seq,ack.seq+ack.pktsize(),false,true,false,bytes,buffer);
-			memset(pkt,0,1024);
-			pktsize = encode(sendpkt,pkt);
-			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
-			seq = add(seq,pktsize);
-			log_send(sendpkt);
-			if (n < 0)
-				 error("ERROR writing to socket");
 
-			memset(pkt,0,1024);
-
-			// n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
-			// if(n<0) error("ERROR reading from socket");
-			// packet rcvpkt = decode(pkt);
-
-			// log_packet(rcvpkt);
-
-		}
-		file.close();
-
-		packet finpkt(seq,ack.seq+ack.pktsize(),false,true,true,0,NULL);
-		memset(pkt,0,1024);
-		pktsize = encode(finpkt,pkt);
-		n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
-		seq = add(seq,pktsize);
-		if (n < 0)
-			 error("ERROR writing to socket");
+	  ////////////////////////////////////////////////////////////
+	  // here we
+	  for (long unsigned int i = 0; i < packetVector.size(); ++i) {
+	    //	    for (long unsigned int i = 0; i < packetVector.size(); ++i) {
+	    // TODO ^^ increase limit by 1, if i == .size(), we busy wait for a FIN pkt
+	    // if we get a SYN with a retransmission request and a seq number
+	    // we search for the seq number and reset the index of the iterator to
+	    // the matching packet
+	    memset(pkt, 0, 1024);
+	    pktsize = encode(packetVector[i].second,pkt);
+	    n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+	    log_send(packetVector[i].second);
+	    if (n < 0)
+	      error("ERROR writing to socket");
+	    
+	    memset(pkt,0,1024);
+	    
+	  }
+	  packet finpkt(seq,ack.seq+ack.pktsize(),false,true,true,0,NULL);
+	  memset(pkt,0,1024);
+	  pktsize = encode(finpkt,pkt);
+	  n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+	  seq = add(seq,pktsize);
+	  if (n < 0)
+	    error("ERROR writing to socket");
 	}
-
-
+	
+	
 	close(sockfd);
 
 	return 0;

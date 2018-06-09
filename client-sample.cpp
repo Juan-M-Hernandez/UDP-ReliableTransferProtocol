@@ -145,7 +145,7 @@ int main(int argc, char *argv[])
 	// HANDSHAKING
 	/////////////////////
 
-	int seq = INIT_SEQ;
+	unsigned int seq = INIT_SEQ;
 
 	char pkt[1024];
 	memset(pkt,0,1024);
