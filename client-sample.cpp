@@ -16,6 +16,7 @@ using namespace std;
 #define MAX_DATA_SIZE 1009
 #define CWND 5120
 #define MAX_SEQ 30720
+#define TIMEOUT 500
 
 
 
@@ -160,11 +161,17 @@ int main(int argc, char *argv[])
 		 error("ERROR writing to socket");
 
 	// receive SYN-ACK
-	memset(pkt,0,1024);
-	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&serv_addr,&servlen);
-	if(n<0) error("ERROR reading from socket");
-	packet synack = decode(pkt);
-	log_recv(synack);
+
+	while(true){
+		memset(pkt,0,1024);
+		n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&serv_addr,&servlen);
+		if(n<0) error("ERROR reading from socket");
+		packet synack = decode(pkt);
+		log_recv(synack);
+		if(synack.ack == seq){
+			break;
+		}
+	}
 
 	// send ACK with name of requesting file
 	memset(pkt,0,1024);
@@ -188,8 +195,28 @@ int main(int argc, char *argv[])
 		log_recv(recvpkt);
 		recv_data.write(recvpkt.data,recvpkt.data_size);
 		if(recvpkt.fin_flag){
+			unsigned int ackno= recvpkt.seq + recvpkt.pktsize();
+			packet finack(seq,ackno,false,true,true,0,NULL);
+			memset(pkt,0,1024);
+			pktsize = encode(finack,pkt);
+			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr)); 
+			seq = add(seq,pktsize);
+			log_send(finack);
+
 			break;
 		}
+
+		// ACK the packet
+		unsigned int ackno = recvpkt.seq+recvpkt.pktsize();
+		packet sendpkt(seq,ackno,false,true,false,0,NULL);
+		memset(pkt,0,1024);
+		pktsize = encode(sendpkt,pkt);
+		n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&serv_addr,sizeof(serv_addr));  // write to the socket
+		seq = add(seq,pktsize);
+		log_send(sendpkt);
+		if (n < 0)
+			 error("ERROR writing to socket");
+
 	}
 	recv_data.close();
 

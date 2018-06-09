@@ -9,6 +9,8 @@
 #include <cerrno>
 #include <dirent.h>
 #include <fstream>
+#include <thread>
+#include <chrono>
 using namespace std;
 
 #define INIT_SEQ 0
@@ -16,6 +18,7 @@ using namespace std;
 #define MAX_DATA_SIZE 1009
 #define CWND 5120
 #define MAX_SEQ 30720
+#define TIMEOUT 500
 
 
 void fakecpy(char* a, char* b, size_t len){
@@ -200,9 +203,7 @@ int main(int argc, char *argv[])
 
 	// find the file in the directory
 	filename = search_directory(filename);
-	if(filename == ""){
-		// whatever happens if the file doesn't exist :(
-	} else{
+	if(filename != ""){
 
 		ifstream file(filename.c_str(),ios_base::binary);
 		char buffer[MAX_DATA_SIZE];
@@ -220,25 +221,41 @@ int main(int argc, char *argv[])
 			if (n < 0)
 				 error("ERROR writing to socket");
 
-			memset(pkt,0,1024);
 
-			// n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
-			// if(n<0) error("ERROR reading from socket");
-			// packet rcvpkt = decode(pkt);
+			char recvbuf[1024];
+			while(true){
+				memset(recvbuf,0,1024);
+				n = recvfrom(sockfd,(char*)recvbuf,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+				if(n<0) error("ERROR reading from socket");
+				packet recvpkt = decode(recvbuf);
+				if(recvpkt.ack == seq){
+					break;
+				}
+			}
 
-			// log_packet(rcvpkt);
+			log_recv(recvpkt);
 
 		}
 		file.close();
-
-		packet finpkt(seq,ack.seq+ack.pktsize(),false,true,true,0,NULL);
-		memset(pkt,0,1024);
-		pktsize = encode(finpkt,pkt);
-		n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
-		seq = add(seq,pktsize);
-		if (n < 0)
-			 error("ERROR writing to socket");
 	}
+
+	// FIN stuff
+
+	packet finpkt(seq,ack.seq+ack.pktsize(),false,true,true,0,NULL);
+	memset(pkt,0,1024);
+	pktsize = encode(finpkt,pkt);
+	n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+	seq = add(seq,pktsize);
+	log_send(finpkt);
+	if (n < 0)
+		 error("ERROR writing to socket");
+
+	memset(pkt,0,1024);
+	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+	if(n<0) error("ERROR reading from socket");
+	packet recvpkt = decode(pkt);
+
+	log_recv(recvpkt);
 
 
 	close(sockfd);
