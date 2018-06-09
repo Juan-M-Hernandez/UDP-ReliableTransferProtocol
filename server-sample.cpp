@@ -163,8 +163,16 @@ int main(int argc, char *argv[])
 	// HANDSHAKING
 	/////////////////////
 
+
+	fd_set inSet;
+	struct timeval timeout;
+			
+			// wait for specified time
+	timeout.tv_sec = 0;
+	timeout.tv_usec = TIMEOUT * 1000;
+
 	int n;
-	int seq = INIT_SEQ;
+	unsigned int seq = INIT_SEQ;
 
 	// receive first SYN
 
@@ -190,14 +198,33 @@ int main(int argc, char *argv[])
 
 	// receive ACK with name of requested file
 
-	memset(pkt,0,1024);
-
-	n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
-	if(n<0) error("ERROR reading from socket");
 	packet ack;
-	decode(pkt,ack);
+	while(true){
+		FD_ZERO(&inSet);
+		FD_SET(sockfd, &inSet);
+		int rv = select(sockfd+1,&inSet,NULL,NULL,&timeout);
+		if(rv < 0){
+			error("ERROR reading from socket");
+		} else if(rv == 0){
+			n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+			log_send(synack, true);
+			if (n < 0)
+				error("ERROR writing to socket");
+			
+			timeout.tv_sec = 0;
+			timeout.tv_usec = TIMEOUT * 1000;
+		} else{
 
-	log_recv(ack);
+			memset(pkt,0,1024);
+			n = recvfrom(sockfd,(char*)pkt,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+			if(n<0) error("ERROR reading from socket");
+			decode(pkt,ack);
+			log_recv(ack);
+			if(ack.ack == seq){
+				break;
+			}
+		}
+	}
 
 	string filename(ack.data);
 
@@ -223,11 +250,33 @@ int main(int argc, char *argv[])
 
 
 			char recvbuf[1024];
-			memset(recvbuf,0,1024);
-			n = recvfrom(sockfd,(char*)recvbuf,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
-			if(n<0) error("ERROR reading from socket");
-			decode(recvbuf,ack);
-			log_recv(ack);
+
+			while(true){
+				FD_ZERO(&inSet);
+				FD_SET(sockfd, &inSet);
+				int rv = select(sockfd+1,&inSet,NULL,NULL,&timeout);
+				if(rv < 0){
+					error("ERROR reading from socket");
+				} else if(rv == 0){
+					n = sendto(sockfd, (const char*)pkt, pktsize, MSG_CONFIRM,(const struct sockaddr*)&cli_addr,clilen);  // write to the socket
+					log_send(sendpkt, true);
+					if (n < 0)
+						error("ERROR writing to socket");
+					
+					timeout.tv_sec = 0;
+					timeout.tv_usec = TIMEOUT * 1000;
+				} else{
+
+					memset(recvbuf,0,1024);
+					n = recvfrom(sockfd,(char*)recvbuf,1024,MSG_WAITALL,(struct sockaddr*)&cli_addr,&clilen);
+					if(n<0) error("ERROR reading from socket");
+					decode(recvbuf,ack);
+					log_recv(ack);
+					if(ack.ack == seq){
+						break;
+					}
+				}
+			}
 
 
 		}

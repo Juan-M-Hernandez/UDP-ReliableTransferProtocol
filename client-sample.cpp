@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
 	timeout.tv_sec = 0;
 	timeout.tv_usec = TIMEOUT * 1000;
 
-	int seq = INIT_SEQ;
+	unsigned int seq = INIT_SEQ;
 
 	char pkt[1024];
 	memset(pkt,0,1024);
